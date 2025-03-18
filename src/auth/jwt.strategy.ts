@@ -3,8 +3,6 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable } from '@nestjs/common';
 import { User } from '../entities/user.entity';
 
-type UserPayload = Pick<User, 'id' | 'email'>;
-
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
@@ -14,7 +12,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: any): Promise<UserPayload> {
-    return { id: payload.sub, email: payload.email };
+  async validate(payload: any) {
+    return { 
+      id: payload.sub,
+      email: payload.email 
+    };
   }
 }

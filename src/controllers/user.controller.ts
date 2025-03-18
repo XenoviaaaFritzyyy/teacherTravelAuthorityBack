@@ -11,6 +11,31 @@ import { UserRole } from '../entities/user.entity';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  async getProfile(@Request() req) {
+    const user = await this.userService.findOne(req.user.id);
+    if (!user) {
+      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+    }
+    const { password: _, ...result } = user as User;
+    return result;
+  }
+
+  @Get('dashboard')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  async getDashboard() {
+    return this.userService.getDashboardStats();
+  }
+
+  @Get('ao-dashboard')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.AO_ADMIN)
+  async getAODashboard() {
+    return this.userService.getAOAdminDashboardStats();
+  }
+
   @Get()
   async findAll(): Promise<User[]> {
     return this.userService.findAll();
@@ -57,24 +82,10 @@ export class UserController {
     return this.userService.updateUserRole(id, updateUserRoleDto.role);
   }
 
-  @Get('dashboard')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  async getDashboard() {
-    return this.userService.getDashboardStats();
-  }
-
   @Post(':id/reset-password')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.AO_ADMIN)
   async resetPassword(@Param('id') id: number, @Request() req) {
     return this.userService.resetPassword(id, req.user);
-  }
-
-  @Get('ao-dashboard')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.AO_ADMIN)
-  async getAODashboard() {
-    return this.userService.getAOAdminDashboardStats();
   }
 } 

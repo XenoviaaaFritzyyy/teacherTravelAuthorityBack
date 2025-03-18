@@ -17,17 +17,17 @@ export class AuthService {
   async signUp(createUserDto: CreateUserDto): Promise<{ accessToken: string }> {
     const { password, ...rest } = createUserDto;
 
-    // Hash the password
-    const salt = await bcrypt.genSalt();
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Create the user object
-    const user = this.userRepository.create({
-      ...rest,
-      password: hashedPassword,
-    });
-
     try {
+      // Hash the password
+      const salt = await bcrypt.genSalt();
+      const hashedPassword = await bcrypt.hash(password, salt);
+
+      // Create the user object
+      const user = this.userRepository.create({
+        ...rest,
+        password: hashedPassword,
+      });
+
       // Save the user
       const savedUser = await this.userRepository.save(user);
       
@@ -37,28 +37,41 @@ export class AuthService {
       
       return { accessToken };
     } catch (error) {
+      console.error('Signup error:', error); // Add detailed error logging
+      
       if (error.code === 'ER_DUP_ENTRY') {
         throw new ConflictException('Username already exists');
       }
-      throw new InternalServerErrorException();
+      
+      // Add more specific error handling
+      if (error.message) {
+        throw new InternalServerErrorException(error.message);
+      }
+      
+      throw new InternalServerErrorException('Failed to create user');
     }
   }
 
   async validateUser(email: string, password: string): Promise<any> {
-    const user = await this.userRepository.findOne({ 
-      where: { email },
-      select: ['id', 'username', 'email', 'password'] // Added email to select
-    });
+    // First find user with password field explicitly selected
+    const user = await this.userRepository
+        .createQueryBuilder('user')
+        .where('user.email = :email', { email })
+        .addSelect('user.password')
+        .getOne();
 
-    if (user && await bcrypt.compare(password, user.password)) {
-      const { password, ...result } = user;
-      return result;
-    }
-    return null;
+    if (!user) return null;
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) return null;
+
+    // Get full user data without password
+    const { password: _, ...result } = user;
+    return result;
   }
 
   async login(user: User) {
-    const payload = { email: user.email, sub: user.id }; // Changed to use email
+    const payload = { email: user.email, sub: user.id };
     return {
       accessToken: this.jwtService.sign(payload),
     };

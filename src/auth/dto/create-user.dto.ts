@@ -18,35 +18,35 @@ export class CreateUserDto {
   @IsNotEmpty()
   last_name: string;
 
-  @IsString()
-  @IsNotEmpty()
-  school_id: string;
-
-  @IsString()
-  @IsNotEmpty()
-  school_name: string;
-
-  @IsString()
-  @IsNotEmpty()
-  district: string;
-
   @IsEmail()
   @IsNotEmpty()
   email: string;
 
-  @IsString()
-  @IsNotEmpty()
-  position: string;
-
-  @IsString()
-  @IsNotEmpty()
-  contact_no: string;
-
-  @IsString()
-  @IsNotEmpty()
-  employee_number: string;
-
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole;
+
+  @IsString()
+  @IsOptional()
+  school_id?: string;
+
+  @IsString()
+  @IsOptional()
+  school_name?: string;
+
+  @IsString()
+  @IsOptional()
+  district?: string;
+
+  @IsString()
+  @IsOptional()
+  position?: string;
+
+  @IsString()
+  @IsOptional()
+  contact_no?: string;
+
+  @IsString()
+  @IsOptional()
+  employee_number?: string;
 }
