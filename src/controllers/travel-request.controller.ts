@@ -9,7 +9,7 @@ import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '../entities/user.entity';
 
 @Controller('travel-requests')
-@UseGuards(JwtAuthGuard)
+
 export class TravelRequestController {
   constructor(private readonly travelRequestService: TravelRequestService) {}
 
