@@ -84,8 +84,21 @@ export class UserController {
 
   @Post(':id/reset-password')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.AO_ADMIN)
+  @Roles(UserRole.ADMIN)
   async resetPassword(@Param('id') id: number, @Request() req) {
     return this.userService.resetPassword(id, req.user);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  async changePassword(
+    @Request() req,
+    @Body() body: { currentPassword: string; newPassword: string }
+  ) {
+    return this.userService.changePassword(
+      req.user.id,
+      body.currentPassword,
+      body.newPassword
+    );
   }
 } 

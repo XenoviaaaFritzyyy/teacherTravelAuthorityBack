@@ -1,8 +1,23 @@
-import { TravelLeeway } from '../entities/travel-request.entity';
+import { IsNotEmpty, IsString, IsDateString, IsOptional } from 'class-validator';
 
 export class CreateTravelRequestDto {
-  destination: string;
+  @IsNotEmpty()
+  @IsString()
   purpose: string;
-  travelDate: Date;
-  leewayDays: TravelLeeway;
+
+  @IsNotEmpty()
+  @IsDateString()
+  startDate: Date;
+
+  @IsNotEmpty()
+  @IsDateString()
+  endDate: Date;
+
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+
+  @IsOptional()
+  @IsString()
+  securityCode?: string;
 } 

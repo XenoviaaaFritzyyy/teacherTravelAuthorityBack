@@ -60,21 +60,51 @@ export class UserService {
     return this.userRepository.save(user);
   }
 
-  async resetPassword(userId: number, aoAdmin: User): Promise<User> {
-    if (aoAdmin.role !== UserRole.AO_ADMIN) {
-      throw new ForbiddenException('Only AO Admins can reset passwords');
+  async resetPassword(userId: number, admin: User): Promise<User> {
+    if (admin.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only Admins can reset passwords');
     }
 
     const user = await this.findOne(userId);
-    if (!user || user.role !== UserRole.TEACHER) {
-      throw new NotFoundException('Teacher not found');
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Only allow resetting passwords for Teachers and AO Admins
+    if (user.role === UserRole.ADMIN) {
+      throw new ForbiddenException('Cannot reset Admin passwords');
     }
 
     // Hash the default password
     const hashedPassword = await bcrypt.hash('password123', 10);
     user.password = hashedPassword;
-    user.requirePasswordChange = true; // Add this field to User entity
+    user.requirePasswordChange = true;
     
+    return this.userRepository.save(user);
+  }
+
+  async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<User> {
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .where('user.id = :userId', { userId })
+      .addSelect('user.password')
+      .getOne();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Verify current password
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordValid) {
+      throw new ForbiddenException('Current password is incorrect');
+    }
+
+    // Hash and save new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    user.requirePasswordChange = false;
+
     return this.userRepository.save(user);
   }
 

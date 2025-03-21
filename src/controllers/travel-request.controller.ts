@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, InternalServerErrorException, ParseIntPipe, NotFoundException } from '@nestjs/common';
 import { TravelRequestService } from '../services/travel-request.service';
 import { CreateTravelRequestDto } from '../dto/create-travel-request.dto';
 import { UpdateTravelRequestDto } from '../dto/update-travel-request.dto';
-import { TravelRequestStatus } from '../entities/travel-request.entity';
+import { TravelRequestStatus, ValidationStatus } from '../entities/travel-request.entity';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -56,8 +56,18 @@ export class TravelRequestController {
   @Patch(':id/validate')
   @UseGuards(RolesGuard)
   @Roles(UserRole.AO_ADMIN)
-  validateAndForwardToHead(@Param('id') id: string, @Request() req) {
-    return this.travelRequestService.validateAndForwardToHead(+id, req.user);
+  async validateRequest(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('validationStatus') validationStatus: ValidationStatus
+  ) {
+    try {
+      return await this.travelRequestService.validateRequest(id, validationStatus || ValidationStatus.VALIDATED);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(error.message);
+    }
   }
 
   @Patch(':id/review')
@@ -73,19 +83,29 @@ export class TravelRequestController {
 
   @Patch(':id/remarks')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.AO_ADMIN, UserRole.ADMIN)
-  addRemarks(
-    @Param('id') id: string,
-    @Body('remarks') remarks: string,
-    @Request() req,
+  @Roles(UserRole.AO_ADMIN)
+  async addRemarks(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('remarks') remarks: string
   ) {
-    return this.travelRequestService.addRemarks(+id, remarks, req.user);
+    try {
+      return await this.travelRequestService.addRemarks(id, remarks);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(error.message);
+    }
   }
 
   @Get('ao-admin-requests')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(RolesGuard)
   @Roles(UserRole.AO_ADMIN)
-  findAllForAOAdmin() {
-    return this.travelRequestService.findAllForAOAdmin();
+  async findAllForAOAdmin() {
+    try {
+      return await this.travelRequestService.findAllForAOAdmin();
+    } catch (error) {
+      throw new InternalServerErrorException(error.message);
+    }
   }
 } 

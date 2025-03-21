@@ -25,6 +25,10 @@ export class TravelRequestService {
       ...createTravelRequestDto,
       user,
     });
+
+    // Set the code expiration date to 2 days after the start date
+    travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(new Date(travelRequest.startDate), 2);
+
     return await this.travelRequestRepository.save(travelRequest);
   }
 
@@ -110,12 +114,20 @@ export class TravelRequestService {
     return `${initials}${randomNum}`;
   }
 
-  async addRemarks(id: number, remarks: string, user: User): Promise<TravelRequest> {
-    if (user.role !== UserRole.AO_ADMIN && user.role !== UserRole.ADMIN) {
+  async addRemarks(id: number, remarks: string, user?: User): Promise<TravelRequest> {
+    const travelRequest = await this.travelRequestRepository.findOne({
+      where: { id },
+      relations: ['user']
+    });
+
+    if (!travelRequest) {
+      throw new NotFoundException(`Travel request with ID ${id} not found`);
+    }
+
+    if (user && user.role !== UserRole.AO_ADMIN && user.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Only AO Admin and Admin can add remarks');
     }
 
-    const travelRequest = await this.findOne(id);
     travelRequest.remarks = remarks;
     return await this.travelRequestRepository.save(travelRequest);
   }
@@ -149,8 +161,8 @@ export class TravelRequestService {
       : NotificationType.TRAVEL_REQUEST_REJECTED;
 
     const message = status === TravelRequestStatus.ACCEPTED
-      ? `Your travel request to ${travelRequest.destination} has been approved. Security Code: ${travelRequest.securityCode}`
-      : `Your travel request to ${travelRequest.destination} has been rejected.`;
+      ? `Your travel request has been approved. Security Code: ${travelRequest.securityCode}`
+      : `Your travel request has been rejected.`;
 
     await this.notificationService.createNotification(
       travelRequest.user,
@@ -173,21 +185,42 @@ export class TravelRequestService {
 
     for (const request of expiredRequests) {
       request.isCodeExpired = true;
-      request.securityCode = undefined;
+      request.securityCode = '';
       await this.travelRequestRepository.save(request);
     }
   }
 
   async findAllForAOAdmin(): Promise<TravelRequest[]> {
-    return await this.travelRequestRepository.find({
-      where: [
-        { validationStatus: ValidationStatus.PENDING },
-        { validationStatus: ValidationStatus.VALIDATED }
-      ],
-      relations: ['user'],
-      order: {
-        createdAt: 'DESC'
-      }
+    try {
+      return await this.travelRequestRepository
+        .createQueryBuilder('travelRequest')
+        .leftJoinAndSelect('travelRequest.user', 'user')
+        .where('travelRequest.validationStatus IN (:...statuses)', {
+          statuses: [
+            ValidationStatus.PENDING,
+            ValidationStatus.VALIDATED,
+            ValidationStatus.REJECTED
+          ]
+        })
+        .orderBy('travelRequest.createdAt', 'DESC')
+        .getMany();
+    } catch (error) {
+      console.error('Error in findAllForAOAdmin:', error);
+      throw new Error('Failed to fetch travel requests');
+    }
+  }
+
+  async validateRequest(id: number, validationStatus: ValidationStatus): Promise<TravelRequest> {
+    const travelRequest = await this.travelRequestRepository.findOne({
+      where: { id },
+      relations: ['user']
     });
+
+    if (!travelRequest) {
+      throw new NotFoundException(`Travel request with ID ${id} not found`);
+    }
+
+    travelRequest.validationStatus = validationStatus;
+    return await this.travelRequestRepository.save(travelRequest);
   }
 } 

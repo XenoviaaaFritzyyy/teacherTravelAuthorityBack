@@ -7,16 +7,10 @@ export enum TravelRequestStatus {
   REJECTED = 'rejected'
 }
 
-export enum TravelLeeway {
-  ONE_DAY = 1,
-  THREE_DAYS = 3,
-  FIVE_DAYS = 5
-}
-
 export enum ValidationStatus {
-  PENDING = 'pending',
-  VALIDATED = 'validated',
-  REJECTED = 'rejected'
+  PENDING = 'PENDING',
+  VALIDATED = 'VALIDATED',
+  REJECTED = 'REJECTED'
 }
 
 @Entity()
@@ -25,13 +19,13 @@ export class TravelRequest {
   id: number;
 
   @Column()
-  destination: string;
-
-  @Column()
   purpose: string;
 
   @Column({ type: 'date' })
-  travelDate: Date;
+  startDate: Date;
+
+  @Column({ type: 'date' })
+  endDate: Date;
 
   @Column({
     type: 'enum',
@@ -47,30 +41,22 @@ export class TravelRequest {
   })
   validationStatus: ValidationStatus;
 
-  @Column({
-    type: 'enum',
-    enum: TravelLeeway,
-    default: TravelLeeway.ONE_DAY
+  @ManyToOne(() => User, user => user.travelRequests, {
+    eager: false
   })
-  leewayDays: TravelLeeway;
-
-  @ManyToOne(() => User, user => user.travelRequests)
   user: User;
 
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ nullable: true })
-  remarks?: string;
+  @Column({ default: '' })
+  remarks: string;
 
-  @Column({ nullable: true })
-  securityCode?: string;
+  @Column({ default: '' })
+  securityCode: string;
 
-  @Column({ nullable: true })
-  codeExpirationDate?: Date;
-
-  @Column({ nullable: true })
-  lastUsedDate?: Date;
+  @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
+  codeExpirationDate: Date;
 
   @Column({ default: false })
   isCodeExpired: boolean;
