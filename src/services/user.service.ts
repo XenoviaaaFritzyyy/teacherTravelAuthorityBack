@@ -52,8 +52,20 @@ export class UserService {
 
   async update(id: number, user: Partial<User>): Promise<User | null> {
     try {
-      await this.userRepository.update(id, user);
-      return this.findOne(id);
+      // First check if user exists
+      const existingUser = await this.userRepository.findOne({ where: { id } });
+      if (!existingUser) {
+        return null;
+      }
+
+      // Remove the id from the update object to prevent primary key conflicts
+      const { id: _, ...updateData } = user;
+
+      // Update the user using the existing entity
+      await this.userRepository.update(id, updateData);
+      
+      // Return the updated user
+      return await this.userRepository.findOne({ where: { id } });
     } catch (error) {
       throw new Error(`Failed to update user: ${error.message}`);
     }
