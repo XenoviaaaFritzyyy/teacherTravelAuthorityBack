@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Request, InternalServerErrorException, ParseIntPipe, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, InternalServerErrorException, ParseIntPipe, NotFoundException } from '@nestjs/common';
 import { TravelRequestService } from '../services/travel-request.service';
 import { CreateTravelRequestDto } from '../dto/create-travel-request.dto';
 import { UpdateTravelRequestDto } from '../dto/update-travel-request.dto';
 import { TravelRequestStatus, ValidationStatus } from '../entities/travel-request.entity';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('travel-requests')
+@UseGuards(JwtAuthGuard)
 export class TravelRequestController {
   constructor(private readonly travelRequestService: TravelRequestService) {}
 
