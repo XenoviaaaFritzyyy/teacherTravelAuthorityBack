@@ -90,6 +90,7 @@ export class UserService {
   }
 
   async resetPassword(userId: number, admin: User): Promise<User> {
+    // Verify admin role
     if (admin.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Only Admins can reset passwords');
     }
@@ -99,13 +100,10 @@ export class UserService {
       throw new NotFoundException('User not found');
     }
 
-    // Only allow resetting passwords for Teachers and AO Admins
-    if (user.role === UserRole.ADMIN) {
-      throw new ForbiddenException('Cannot reset Admin passwords');
-    }
-
     // Hash the default password
     const hashedPassword = await bcrypt.hash('password123', 10);
+    
+    // Update user with new password and require change on next login
     user.password = hashedPassword;
     user.requirePasswordChange = true;
     
