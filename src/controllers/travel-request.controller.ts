@@ -93,4 +93,17 @@ export class TravelRequestController {
     }
   }
 
+  @Post(':id/generate-security-code')
+  @UseGuards(JwtAuthGuard)
+  async generateSecurityCode(@Param('id', ParseIntPipe) id: number) {
+    try {
+      return await this.travelRequestService.generateSecurityCodeForAcceptedRequest(id);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(error.message);
+    }
+  }
+
 } 

@@ -8,7 +8,7 @@ import { User, UserRole } from '../entities/user.entity';
 import { NotificationService } from './notification.service';
 import { NotificationType } from '../entities/notification.entity';
 import { DateUtilService } from './date-util.service';
-import { LessThan } from 'typeorm';
+import { LessThan, Not } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 
 @Injectable()
@@ -26,8 +26,9 @@ export class TravelRequestService {
       user,
     });
 
-    // Set the code expiration date to 2 days after the start date
-    travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(new Date(travelRequest.startDate), 2);
+    // Set the code expiration date to 2 working days after the start date
+    const startDate = new Date(travelRequest.startDate);
+    travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(startDate, 2);
 
     return await this.travelRequestRepository.save(travelRequest);
   }
@@ -61,6 +62,25 @@ export class TravelRequestService {
   async updateStatus(id: number, status: TravelRequestStatus): Promise<TravelRequest> {
     const travelRequest = await this.findOne(id);
     travelRequest.status = status;
+    
+    if (status === TravelRequestStatus.ACCEPTED && !travelRequest.securityCode) {
+      travelRequest.securityCode = this.generateSecurityCode(
+        travelRequest.user.first_name,
+        travelRequest.user.last_name
+      );
+      
+      // Set expiration to end of the travel start date
+      const expirationDate = new Date(travelRequest.startDate);
+      expirationDate.setHours(23, 59, 59, 999);
+      travelRequest.codeExpirationDate = expirationDate;
+      
+      await this.notificationService.createNotification(
+        travelRequest.user,
+        `Your travel request has been approved. Security Code: ${travelRequest.securityCode}. This code will expire at the end of ${expirationDate.toLocaleDateString()}.`,
+        NotificationType.TRAVEL_REQUEST_APPROVED
+      );
+    }
+    
     return await this.travelRequestRepository.save(travelRequest);
   }
 
@@ -137,49 +157,91 @@ export class TravelRequestService {
     }
 
     travelRequest.status = status;
-    travelRequest.securityCode = this.generateSecurityCode(
-      travelRequest.user.first_name,
-      travelRequest.user.last_name
-    );
     
     if (status === TravelRequestStatus.ACCEPTED) {
-      travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(new Date(), 7);
+      travelRequest.securityCode = this.generateSecurityCode(
+        travelRequest.user.first_name,
+        travelRequest.user.last_name
+      );
+      
+      // Set expiration to 2 working days after start date
+      const startDate = new Date(travelRequest.startDate);
+      travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(startDate, 2);
     }
     
     const updatedRequest = await this.travelRequestRepository.save(travelRequest);
 
-    // Create notification for the teacher with security code
-    const notificationType = status === TravelRequestStatus.ACCEPTED 
-      ? NotificationType.TRAVEL_REQUEST_APPROVED 
-      : NotificationType.TRAVEL_REQUEST_REJECTED;
-
-    const message = status === TravelRequestStatus.ACCEPTED
-      ? `Your travel request has been approved. Security Code: ${travelRequest.securityCode}`
-      : `Your travel request has been rejected.`;
-
-    await this.notificationService.createNotification(
-      travelRequest.user,
-      message,
-      notificationType
-    );
+    if (status === TravelRequestStatus.ACCEPTED) {
+      await this.notificationService.createNotification(
+        travelRequest.user,
+        `Your travel request has been approved. Security Code: ${travelRequest.securityCode}. 
+        This code will be marked as expired after ${travelRequest.codeExpirationDate.toLocaleDateString()} 
+        but will remain available for emergency purposes until your travel end date.`,
+        NotificationType.TRAVEL_REQUEST_APPROVED
+      );
+    } else {
+      await this.notificationService.createNotification(
+        travelRequest.user,
+        `Your travel request has been rejected.`,
+        NotificationType.TRAVEL_REQUEST_REJECTED
+      );
+    }
 
     return updatedRequest;
   }
 
   @Cron('0 0 * * *') // Run daily at midnight
   async expireOldCodes() {
-    const today = new Date();
-    const expiredRequests = await this.travelRequestRepository.find({
-      where: {
-        codeExpirationDate: LessThan(today),
-        isCodeExpired: false
-      }
-    });
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Set to start of day for accurate comparison
 
-    for (const request of expiredRequests) {
-      request.isCodeExpired = true;
-      request.securityCode = '';
-      await this.travelRequestRepository.save(request);
+      // Find requests that need code expiration status update (2 days after start date)
+      const requestsToExpire = await this.travelRequestRepository.find({
+        where: {
+          isCodeExpired: false,
+          securityCode: Not(''),
+          codeExpirationDate: LessThan(today)
+        },
+        relations: ['user']
+      });
+
+      // Find requests where end date has passed (to clear security code)
+      const requestsToClear = await this.travelRequestRepository.find({
+        where: {
+          endDate: LessThan(today),
+          securityCode: Not('')
+        },
+        relations: ['user']
+      });
+
+      // Handle code expiration (2 days after start date)
+      for (const request of requestsToExpire) {
+        request.isCodeExpired = true;
+        await this.travelRequestRepository.save(request);
+
+        await this.notificationService.createNotification(
+          request.user,
+          `Your travel request security code has expired (valid for emergency purposes until end of travel period).`,
+          NotificationType.TRAVEL_REQUEST_EXPIRED
+        );
+      }
+
+      // Handle clearing codes (after end date)
+      for (const request of requestsToClear) {
+        request.securityCode = '';
+        await this.travelRequestRepository.save(request);
+
+        await this.notificationService.createNotification(
+          request.user,
+          `Your travel period has ended and your security code has been cleared.`,
+          NotificationType.TRAVEL_REQUEST_COMPLETED
+        );
+      }
+
+      console.log(`Marked ${requestsToExpire.length} codes as expired and cleared ${requestsToClear.length} codes`);
+    } catch (error) {
+      console.error('Error in expireOldCodes:', error);
     }
   }
 
@@ -218,6 +280,38 @@ export class TravelRequestService {
     }
 
     travelRequest.validationStatus = validationStatus;
+    return await this.travelRequestRepository.save(travelRequest);
+  }
+
+  async generateSecurityCodeForAcceptedRequest(id: number): Promise<TravelRequest> {
+    const travelRequest = await this.travelRequestRepository.findOne({
+      where: { id },
+      relations: ['user']
+    });
+
+    if (!travelRequest) {
+      throw new NotFoundException(`Travel request with ID ${id} not found`);
+    }
+
+    if (travelRequest.status !== TravelRequestStatus.ACCEPTED) {
+      throw new ForbiddenException('Can only generate security codes for accepted requests');
+    }
+
+    if (!travelRequest.securityCode) {
+      travelRequest.securityCode = this.generateSecurityCode(
+        travelRequest.user.first_name,
+        travelRequest.user.last_name
+      );
+      travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(new Date(), 7);
+      
+      // Create notification for the teacher with security code
+      await this.notificationService.createNotification(
+        travelRequest.user,
+        `Your travel request has been approved. Security Code: ${travelRequest.securityCode}`,
+        NotificationType.TRAVEL_REQUEST_APPROVED
+      );
+    }
+
     return await this.travelRequestRepository.save(travelRequest);
   }
 } 
