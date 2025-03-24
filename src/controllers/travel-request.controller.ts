@@ -16,7 +16,7 @@ export class TravelRequestController {
   }
 
   @Get()
-  findAll() {
+  async findAll() {
     return this.travelRequestService.findAll();
   }
 
@@ -51,10 +51,15 @@ export class TravelRequestController {
   @Patch(':id/validate')
   async validateRequest(
     @Param('id', ParseIntPipe) id: number,
-    @Body('validationStatus') validationStatus: ValidationStatus
+    @Body('validationStatus') validationStatus: ValidationStatus,
+    @Request() req
   ) {
     try {
-      return await this.travelRequestService.validateRequest(id, validationStatus || ValidationStatus.VALIDATED);
+      return await this.travelRequestService.validateRequest(
+        id, 
+        validationStatus || ValidationStatus.VALIDATED,
+        req.user
+      );
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -75,10 +80,11 @@ export class TravelRequestController {
   @Patch(':id/remarks')
   async addRemarks(
     @Param('id', ParseIntPipe) id: number,
-    @Body('remarks') remarks: string
+    @Body('remarks') remarks: string,
+    @Request() req
   ) {
     try {
-      return await this.travelRequestService.addRemarks(id, remarks);
+      return await this.travelRequestService.addRemarks(id, remarks, req.user);
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;

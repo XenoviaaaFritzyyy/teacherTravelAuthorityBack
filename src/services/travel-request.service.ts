@@ -35,6 +35,9 @@ export class TravelRequestService {
   async findAll(): Promise<TravelRequest[]> {
     return await this.travelRequestRepository.find({
       relations: ['user'],
+      order: {
+        createdAt: 'DESC'
+      }
     });
   }
 
@@ -67,26 +70,16 @@ export class TravelRequestService {
   }
 
   async findAllPendingRequests(user: User): Promise<TravelRequest[]> {
-    if (user.role === UserRole.AO_ADMIN) {
-      // AO Admins can see all pending requests
-      return await this.travelRequestRepository.find({
-        where: { 
-          status: TravelRequestStatus.PENDING,
-          validationStatus: ValidationStatus.PENDING
-        },
-        relations: ['user'],
-      });
-    } else if (user.role === UserRole.ADMIN) {
-      // Admins can only see validated requests
-      return await this.travelRequestRepository.find({
-        where: { 
-          status: TravelRequestStatus.PENDING,
-          validationStatus: ValidationStatus.VALIDATED
-        },
-        relations: ['user'],
-      });
-    }
-    throw new ForbiddenException('Only AO Admins and admins can view pending requests');
+    // Remove role restrictions, return all pending requests
+    return await this.travelRequestRepository.find({
+      where: { 
+        status: TravelRequestStatus.PENDING
+      },
+      relations: ['user'],
+      order: {
+        createdAt: 'DESC'
+      }
+    });
   }
 
   async validateAndForwardToHead(id: number, head: User): Promise<TravelRequest> {
@@ -114,7 +107,11 @@ export class TravelRequestService {
     return `${initials}${randomNum}`;
   }
 
-  async addRemarks(id: number, remarks: string, user?: User): Promise<TravelRequest> {
+  async addRemarks(
+    id: number, 
+    remarks: string, 
+    user: User
+  ): Promise<TravelRequest> {
     const travelRequest = await this.travelRequestRepository.findOne({
       where: { id },
       relations: ['user']
@@ -122,10 +119,6 @@ export class TravelRequestService {
 
     if (!travelRequest) {
       throw new NotFoundException(`Travel request with ID ${id} not found`);
-    }
-
-    if (user && user.role !== UserRole.AO_ADMIN && user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only AO Admin and Admin can add remarks');
     }
 
     travelRequest.remarks = remarks;
@@ -210,7 +203,11 @@ export class TravelRequestService {
     }
   }
 
-  async validateRequest(id: number, validationStatus: ValidationStatus): Promise<TravelRequest> {
+  async validateRequest(
+    id: number, 
+    validationStatus: ValidationStatus,
+    user: User
+  ): Promise<TravelRequest> {
     const travelRequest = await this.travelRequestRepository.findOne({
       where: { id },
       relations: ['user']
