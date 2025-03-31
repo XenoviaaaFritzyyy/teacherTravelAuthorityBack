@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { Repository } from 'typeorm';
+import { Repository, Not } from 'typeorm';
 import { User, UserRole } from '../entities/user.entity';
 
 @Injectable()
@@ -56,6 +56,16 @@ export class UserService {
       const existingUser = await this.userRepository.findOne({ where: { id } });
       if (!existingUser) {
         return null;
+      }
+
+      // If username is being updated, check if it's already taken
+      if (user.username) {
+        const userWithUsername = await this.userRepository.findOne({
+          where: { username: user.username, id: Not(id) }
+        });
+        if (userWithUsername) {
+          throw new Error(`Username '${user.username}' is already taken`);
+        }
       }
 
       // Remove the id from the update object to prevent primary key conflicts

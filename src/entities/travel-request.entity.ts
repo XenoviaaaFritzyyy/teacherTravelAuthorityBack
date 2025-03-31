@@ -58,6 +58,9 @@ export class TravelRequest {
   @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   codeExpirationDate: Date;
 
+  @Column({ default: '' })
+  department: string;
+
   @Column({ default: false })
   isCodeExpired: boolean;
 }
