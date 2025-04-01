@@ -1,16 +1,22 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  CreateDateColumn,
+} from 'typeorm';
 import { User } from './user.entity';
 
 export enum TravelRequestStatus {
   PENDING = 'pending',
   ACCEPTED = 'accepted',
-  REJECTED = 'rejected'
+  REJECTED = 'rejected',
 }
 
 export enum ValidationStatus {
   PENDING = 'PENDING',
   VALIDATED = 'VALIDATED',
-  REJECTED = 'REJECTED'
+  REJECTED = 'REJECTED',
 }
 
 @Entity()
@@ -30,19 +36,19 @@ export class TravelRequest {
   @Column({
     type: 'enum',
     enum: TravelRequestStatus,
-    default: TravelRequestStatus.PENDING
+    default: TravelRequestStatus.PENDING,
   })
   status: TravelRequestStatus;
 
   @Column({
     type: 'enum',
     enum: ValidationStatus,
-    default: ValidationStatus.PENDING
+    default: ValidationStatus.PENDING,
   })
   validationStatus: ValidationStatus;
 
-  @ManyToOne(() => User, user => user.travelRequests, {
-    eager: false
+  @ManyToOne(() => User, (user) => user.travelRequests, {
+    eager: false,
   })
   user: User;
 
@@ -58,8 +64,12 @@ export class TravelRequest {
   @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   codeExpirationDate: Date;
 
-  @Column({ default: '' })
-  department: string;
+  /**
+   * The key part: This must be a 'simple-array' or 'simple-json' column type
+   * so we can store multiple string values in a TEXT-like column.
+   */
+  @Column('simple-array', { nullable: true })
+  department: string[];
 
   @Column({ default: false })
   isCodeExpired: boolean;
