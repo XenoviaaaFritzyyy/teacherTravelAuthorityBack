@@ -106,4 +106,13 @@ export class TravelRequestController {
     }
   }
 
+  @Post('check-expired-codes')
+  @UseGuards(JwtAuthGuard)
+  async checkExpiredCodes() {
+    try {
+      return await this.travelRequestService.checkAndUpdateExpiredCodes();
+    } catch (error) {
+      throw new InternalServerErrorException(`Failed to check expired codes: ${error.message}`);
+    }
+  }
 } 

@@ -193,56 +193,118 @@ export class TravelRequestService {
   @Cron('0 0 * * *') // Run daily at midnight
   async expireOldCodes() {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Set to start of day for accurate comparison
+      console.log('Running expireOldCodes cron job');
+      await this.checkAndUpdateExpiredCodes();
+    } catch (error) {
+      console.error('Error in expireOldCodes:', error);
+    }
+  }
 
-      // Find requests that need code expiration status update (2 days after start date)
-      const requestsToExpire = await this.travelRequestRepository.find({
-        where: {
-          isCodeExpired: false,
-          securityCode: Not(''),
-          codeExpirationDate: LessThan(today)
-        },
-        relations: ['user']
-      });
-
-      // Find requests where end date has passed (to clear security code)
-      const requestsToClear = await this.travelRequestRepository.find({
-        where: {
-          endDate: LessThan(today),
+  async checkAndUpdateExpiredCodes() {
+    const today = new Date();
+    console.log(`Checking for expired codes. Current date: ${today.toISOString()}`);
+    
+    // Find requests that need code expiration status update - those where the expiration date has passed
+    const requestsToExpire = await this.travelRequestRepository.find({
+      where: [
+        {
+        isCodeExpired: false,
+        securityCode: Not(''),
+        codeExpirationDate: LessThan(today)
+      },
+        // Also find codes that are marked as expired but still have a security code
+        {
+          isCodeExpired: true,
           securityCode: Not('')
-        },
-        relations: ['user']
-      });
+        }
+      ],
+      relations: ['user']
+    });
 
-      // Handle code expiration (2 days after start date)
-      for (const request of requestsToExpire) {
+    console.log(`Found ${requestsToExpire.length} travel requests with expired codes or codes that need to be cleared`);
+    
+    // Debug information
+    for (const request of requestsToExpire) {
+      console.log(`Travel request ID: ${request.id}`);
+      console.log(`Security Code: ${request.securityCode}`);
+      console.log(`Code Expiration Date: ${request.codeExpirationDate?.toISOString() || 'No expiration date'}`);
+      console.log(`Current isCodeExpired value: ${request.isCodeExpired}`);
+      console.log(`Today's date for comparison: ${today.toISOString()}`);
+      
+      // Check if the code should be expired
+      const shouldExpire = request.codeExpirationDate && request.codeExpirationDate < today;
+      console.log(`Should expire based on date comparison: ${shouldExpire}`);
+    }
+    
+    // Find requests where end date has passed (to clear security code)
+    const requestsToClear = await this.travelRequestRepository.find({
+      where: {
+        endDate: LessThan(today),
+        securityCode: Not('')
+      },
+      relations: ['user']
+    });
+
+    let expiredCount = 0;
+    let clearedCount = 0;
+
+    // Handle code expiration
+    for (const request of requestsToExpire) {
+      console.log(`Processing travel request ID: ${request.id}`);
+      
+      // Store the original security code for reference in the notification
+      const originalCode = request.securityCode;
+      
+      if (!request.isCodeExpired && request.codeExpirationDate && request.codeExpirationDate < today) {
+        // Mark as expired and clear the security code
+        console.log(`Marking code as expired for travel request ID: ${request.id}`);
         request.isCodeExpired = true;
-        await this.travelRequestRepository.save(request);
-
-        await this.notificationService.createNotification(
-          request.user,
-          `Your travel request security code has expired (valid for emergency purposes until end of travel period).`,
-          NotificationType.TRAVEL_REQUEST_EXPIRED
-        );
+        expiredCount++;
       }
+      
+      // Clear the security code if it's expired or should be expired
+      if (request.isCodeExpired && request.securityCode) {
+        console.log(`Clearing security code for expired travel request ID: ${request.id}`);
+        request.securityCode = '';
+        
+        // Save the updated request
+        await this.travelRequestRepository.save(request);
+        
+        // Send notification only if we haven't already counted this as expired
+        if (expiredCount > 0) {
+          await this.notificationService.createNotification(
+            request.user,
+            `Your travel request security code ${originalCode} has expired and has been cleared from the system.`,
+            NotificationType.TRAVEL_REQUEST_EXPIRED
+          );
+        }
+      } else {
+        // Save any other changes
+        await this.travelRequestRepository.save(request);
+      }
+    }
 
-      // Handle clearing codes (after end date)
-      for (const request of requestsToClear) {
+    // Handle clearing codes (after end date)
+    for (const request of requestsToClear) {
+      // Only clear the code if the end date has truly passed
+      if (request.endDate < today && request.securityCode) {
+        console.log(`Clearing security code for travel request ID: ${request.id}, End date: ${request.endDate.toISOString()}`);
         request.securityCode = '';
         await this.travelRequestRepository.save(request);
+        clearedCount++;
 
         await this.notificationService.createNotification(
           request.user,
           `Your travel period has ended and your security code has been cleared.`,
           NotificationType.TRAVEL_REQUEST_COMPLETED
         );
+      } else {
+        console.log(`Skipping clearing security code for travel request ID: ${request.id} as its end date has not passed yet`);
       }
-
-      console.log(`Marked ${requestsToExpire.length} codes as expired and cleared ${requestsToClear.length} codes`);
-    } catch (error) {
-      console.error('Error in expireOldCodes:', error);
     }
+
+    console.log(`Marked ${expiredCount} codes as expired and cleared ${clearedCount} codes`);
+    return { expired: expiredCount, cleared: clearedCount };
   }
 
   async findAllForAOAdmin(): Promise<TravelRequest[]> {

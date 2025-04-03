@@ -20,4 +20,7 @@ export class CreateTravelRequestDto {
   @IsOptional()
   @IsString()
   securityCode?: string;
+  
+  @IsOptional()
+  isCodeExpired?: boolean;
 } 
