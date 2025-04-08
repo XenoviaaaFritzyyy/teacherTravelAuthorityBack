@@ -90,16 +90,47 @@ export class TravelRequestService {
   }
 
   async findAllPendingRequests(user: User): Promise<TravelRequest[]> {
-    // Remove role restrictions, return all pending requests
-    return await this.travelRequestRepository.find({
-      where: { 
-        status: TravelRequestStatus.PENDING
-      },
-      relations: ['user'],
-      order: {
-        createdAt: 'DESC'
+    try {
+      // Simple approach: use a single query with proper conditions
+      let query = this.travelRequestRepository.createQueryBuilder('travelRequest')
+        .leftJoinAndSelect('travelRequest.user', 'user')
+        .orderBy('travelRequest.createdAt', 'DESC');
+
+      // Add role-specific conditions
+      if (user.role === UserRole.PRINCIPAL) {
+        query = query.where(
+          '(user.role = :teacherRole AND user.school_id = :schoolId) OR user.role = :asdsRole',
+          { 
+            teacherRole: UserRole.TEACHER, 
+            schoolId: user.school_id,
+            asdsRole: UserRole.ASDS 
+          }
+        );
+      } else if (user.role === UserRole.PSDS) {
+        query = query.where(
+          'user.role = :principalRole AND user.district = :district',
+          { 
+            principalRole: UserRole.PRINCIPAL, 
+            district: user.district 
+          }
+        );
+      } else if (user.role === UserRole.ASDS) {
+        query = query.where(
+          'user.role = :psdsRole',
+          { 
+            psdsRole: UserRole.PSDS 
+          }
+        );
+      } else {
+        // For any other role, return an empty array
+        return [];
       }
-    });
+
+      return await query.getMany();
+    } catch (error) {
+      console.error('Error in findAllPendingRequests:', error);
+      return []; // Return empty array on error
+    }
   }
 
   async validateAndForwardToHead(id: number, head: User): Promise<TravelRequest> {
@@ -143,6 +174,94 @@ export class TravelRequestService {
 
     travelRequest.remarks = remarks;
     return await this.travelRequestRepository.save(travelRequest);
+  }
+
+  async validateRequest(
+    id: number, 
+    validationStatus: ValidationStatus,
+    user: User
+  ): Promise<TravelRequest> {
+    const travelRequest = await this.travelRequestRepository.findOne({
+      where: { id },
+      relations: ['user']
+    });
+
+    if (!travelRequest) {
+      throw new NotFoundException(`Travel request with ID ${id} not found`);
+    }
+
+    // Check if the user has permission to validate this request based on roles
+    const canValidate = this.canUserValidateRequest(user, travelRequest.user);
+    if (!canValidate) {
+      throw new ForbiddenException(`User with role ${user.role} cannot validate requests from ${travelRequest.user.role}`);
+    }
+
+    travelRequest.validationStatus = validationStatus;
+    
+    // If validated, also update the status to accepted
+    if (validationStatus === ValidationStatus.VALIDATED) {
+      travelRequest.status = TravelRequestStatus.ACCEPTED;
+      
+      // Generate security code for accepted requests
+      if (!travelRequest.securityCode) {
+        travelRequest.securityCode = this.generateSecurityCode(
+          travelRequest.user.first_name,
+          travelRequest.user.last_name
+        );
+        
+        // Set expiration date
+        const startDate = new Date(travelRequest.startDate);
+        travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(startDate, 2);
+      }
+      
+      // Notify the user that their request has been approved
+      await this.notificationService.createNotification(
+        travelRequest.user,
+        `Your travel request has been approved. Security Code: ${travelRequest.securityCode}. This code will expire after ${travelRequest.codeExpirationDate.toLocaleDateString()}.`,
+        NotificationType.TRAVEL_REQUEST_APPROVED
+      );
+      
+      // If the validator is a Principal, PSDS, or ASDS, also notify the AO_ADMIN
+      if (user.role === UserRole.PRINCIPAL || user.role === UserRole.PSDS || user.role === UserRole.ASDS) {
+        // Find all AO_ADMIN users
+        const aoAdmins = await this.findAOAdminUsers();
+        
+        // Notify each AO_ADMIN about the validated request
+        for (const admin of aoAdmins) {
+          await this.notificationService.createNotification(
+            admin,
+            `A travel request from ${travelRequest.user.first_name} ${travelRequest.user.last_name} has been validated by ${user.first_name} ${user.last_name} (${user.role}).`,
+            NotificationType.TRAVEL_REQUEST_VALIDATED
+          );
+        }
+      }
+    } else if (validationStatus === ValidationStatus.REJECTED) {
+      // If rejected, update the status to rejected
+      travelRequest.status = TravelRequestStatus.REJECTED;
+      
+      // Notify the user that their request has been rejected
+      await this.notificationService.createNotification(
+        travelRequest.user,
+        `Your travel request has been rejected.`,
+        NotificationType.TRAVEL_REQUEST_REJECTED
+      );
+    }
+    
+    return await this.travelRequestRepository.save(travelRequest);
+  }
+
+  // Helper method to find all AO_ADMIN users
+  private async findAOAdminUsers(): Promise<User[]> {
+    // We need to inject the User repository to perform this query
+    // This should be done in the constructor, but for now we'll use the EntityManager
+    const entityManager = this.travelRequestRepository.manager;
+    
+    // Query all users with the AO_ADMIN role
+    const aoAdmins = await entityManager.find(User, {
+      where: { role: UserRole.AO_ADMIN }
+    });
+    
+    return aoAdmins;
   }
 
   async adminReviewRequest(id: number, status: TravelRequestStatus, admin: User): Promise<TravelRequest> {
@@ -327,24 +446,6 @@ export class TravelRequestService {
     }
   }
 
-  async validateRequest(
-    id: number, 
-    validationStatus: ValidationStatus,
-    user: User
-  ): Promise<TravelRequest> {
-    const travelRequest = await this.travelRequestRepository.findOne({
-      where: { id },
-      relations: ['user']
-    });
-
-    if (!travelRequest) {
-      throw new NotFoundException(`Travel request with ID ${id} not found`);
-    }
-
-    travelRequest.validationStatus = validationStatus;
-    return await this.travelRequestRepository.save(travelRequest);
-  }
-
   async generateSecurityCodeForAcceptedRequest(id: number): Promise<TravelRequest> {
     const travelRequest = await this.travelRequestRepository.findOne({
       where: { id },
@@ -376,4 +477,88 @@ export class TravelRequestService {
 
     return await this.travelRequestRepository.save(travelRequest);
   }
-} 
+
+  async sendReceiptNotification(id: number, message: string, adminUser: User): Promise<TravelRequest> {
+    // Check if the user is an AO Admin Officer
+    if (adminUser.role !== UserRole.AO_ADMIN_OFFICER) {
+      throw new ForbiddenException('Only AO Admin Officers can send receipt notifications');
+    }
+
+    // Find the travel request
+    const travelRequest = await this.travelRequestRepository.findOne({
+      where: { id },
+      relations: ['user'],
+    });
+
+    if (!travelRequest) {
+      throw new NotFoundException(`Travel request with ID ${id} not found`);
+    }
+
+    // Check if the travel request is validated
+    if (travelRequest.validationStatus !== ValidationStatus.VALIDATED) {
+      throw new ForbiddenException('Only validated travel requests can receive receipt notifications');
+    }
+
+    // Create a notification for the user
+    const notificationMessage = message || `Your travel request receipt is ready. Security Code: ${travelRequest.securityCode}`;
+    
+    await this.notificationService.createNotification(
+      travelRequest.user,
+      notificationMessage,
+      NotificationType.TRAVEL_REQUEST_RECEIPT
+    );
+
+    return travelRequest;
+  }
+
+  async findBySecurityCode(code: string, user: User): Promise<TravelRequest> {
+    // Find the travel request with the given security code
+    const travelRequest = await this.travelRequestRepository.findOne({
+      where: { securityCode: code },
+      relations: ['user'],
+    });
+
+    if (!travelRequest) {
+      throw new NotFoundException(`Travel request with security code ${code} not found`);
+    }
+
+    // Check if the user is authorized to view this travel request
+    // Users can view their own requests or if they have appropriate roles
+    if (
+      travelRequest.user.id !== user.id && 
+      user.role !== UserRole.ADMIN && 
+      user.role !== UserRole.AO_ADMIN && 
+      user.role !== UserRole.AO_ADMIN_OFFICER
+    ) {
+      throw new ForbiddenException('You are not authorized to view this travel request');
+    }
+
+    return travelRequest;
+  }
+
+  // Helper method to check if a user can validate a request based on roles
+  private canUserValidateRequest(validator: User, requestor: User): boolean {
+    // Principal can validate Teacher and ASDS requests
+    if (validator.role === UserRole.PRINCIPAL && 
+        (requestor.role === UserRole.TEACHER || requestor.role === UserRole.ASDS)) {
+      return true;
+    }
+    
+    // PSDS can validate Principal requests
+    if (validator.role === UserRole.PSDS && requestor.role === UserRole.PRINCIPAL) {
+      return true;
+    }
+    
+    // ASDS can validate PSDS requests
+    if (validator.role === UserRole.ASDS && requestor.role === UserRole.PSDS) {
+      return true;
+    }
+    
+    // Admin can validate any request
+    if (validator.role === UserRole.ADMIN || validator.role === UserRole.AO_ADMIN) {
+      return true;
+    }
+    
+    return false;
+  }
+}
