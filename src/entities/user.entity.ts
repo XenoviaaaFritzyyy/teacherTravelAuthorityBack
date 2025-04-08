@@ -4,6 +4,10 @@ import { TravelRequest } from './travel-request.entity';
 
 export enum UserRole {
   TEACHER = 'Teacher',
+  PRINCIPAL = 'Principal',
+  PSDS = 'PSDS',
+  ASDS = 'ASDS',
+  SDS = 'SDS',
   AO_ADMIN = 'AO Admin',
   ADMIN = 'Admin'
 }
