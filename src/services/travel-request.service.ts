@@ -133,6 +133,12 @@ export class TravelRequestService {
     }
   }
 
+  async markAsViewed(id: number): Promise<TravelRequest> {
+    const travelRequest = await this.findOne(id);
+    travelRequest.viewed = true;
+    return await this.travelRequestRepository.save(travelRequest);
+  }
+
   async validateAndForwardToHead(id: number, head: User): Promise<TravelRequest> {
     if (head.role !== UserRole.AO_ADMIN) {
       throw new ForbiddenException('Only AO Admins can validate requests');

@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, 
 import { TravelRequestService } from '../services/travel-request.service';
 import { CreateTravelRequestDto } from '../dto/create-travel-request.dto';
 import { UpdateTravelRequestDto } from '../dto/update-travel-request.dto';
-import { TravelRequestStatus, ValidationStatus } from '../entities/travel-request.entity';
+import { TravelRequestStatus, ValidationStatus, TravelRequest } from '../entities/travel-request.entity';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('travel-requests')
@@ -56,11 +56,18 @@ export class TravelRequestController {
   }
 
   @Patch(':id/status')
-  updateStatus(
-    @Param('id') id: string,
+  async updateStatus(
+    @Param('id', ParseIntPipe) id: number,
     @Body('status') status: TravelRequestStatus,
-  ) {
-    return this.travelRequestService.updateStatus(+id, status);
+  ): Promise<TravelRequest> {
+    return await this.travelRequestService.updateStatus(id, status);
+  }
+
+  @Patch(':id/viewed')
+  async markAsViewed(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<TravelRequest> {
+    return await this.travelRequestService.markAsViewed(id);
   }
 
   @Delete(':id')

@@ -41,6 +41,12 @@ export class TravelRequest {
   status: TravelRequestStatus;
 
   @Column({
+    type: 'boolean',
+    default: false,
+  })
+  viewed: boolean;
+
+  @Column({
     type: 'enum',
     enum: ValidationStatus,
     default: ValidationStatus.PENDING,
