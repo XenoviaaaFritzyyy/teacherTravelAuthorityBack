@@ -18,7 +18,7 @@ import { UserService } from './services/user.service';
       host: 'localhost',
       port: 3306,
       username: 'root',
-      password: '20031975',
+      password: 'godwin12345',
       database: 'travelauthority',
       entities: [User, TravelRequest, Notification],
       synchronize: true,
