@@ -30,6 +30,44 @@ export class TravelRequestService {
     const startDate = new Date(travelRequest.startDate);
     travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(startDate, 2);
 
+    // Check if the department array contains "Others" or a custom department that's not in the standard list
+    const standardDepartments = [
+      "Accounting", "Administrative", "Administrator", "Assessment and Evaluation",
+      "Assistant Schools Division Superintendent (Cluster A)", "Assistant Schools Division Superintendent (Cluster B)",
+      "Assistant Schools Division Superintendent (Cluster C)", "Authorized Center", "Authorized Officer",
+      "Authorized Official", "Budget", "Cashier", "CID", "Client", "Curriculum Management",
+      "Dental", "Disbursing", "Educational Support Staff and Development", "Educational Facilities",
+      "General Services", "HRTD", "Human Resource Management", "ICT", "Instructional Supervision",
+      "Learning and Development", "Legal", "LRMDS", "M and E", "Medical",
+      "Office of the Schools Division Superintendent", "Physical Facilities", "Planning",
+      "Records", "Remittance", "School Governance", "SGOD", "Soc. Mob", "Super User", "Supply", "Unassigned User"
+    ];
+
+    const hasCustomDepartment = travelRequest.department.some(dept => !standardDepartments.includes(dept));
+
+    // If there's a custom department, auto-approve the request and generate a security code
+    if (hasCustomDepartment) {
+      travelRequest.status = TravelRequestStatus.ACCEPTED;
+      travelRequest.validationStatus = ValidationStatus.VALIDATED;
+      travelRequest.securityCode = this.generateSecurityCode(
+        travelRequest.user.first_name,
+        travelRequest.user.last_name
+      );
+
+      // Save the travel request first to get the ID
+      const savedRequest = await this.travelRequestRepository.save(travelRequest);
+
+      // Then create a notification with the security code
+      await this.notificationService.createNotification(
+        user,
+        `Your travel request to ${travelRequest.department.join(', ')} has been automatically approved. Security Code: ${travelRequest.securityCode}. This code will expire after ${travelRequest.codeExpirationDate.toLocaleDateString()}.`,
+        NotificationType.TRAVEL_REQUEST_APPROVED
+      );
+
+      return savedRequest;
+    }
+
+    // For standard departments, follow the normal approval flow
     return await this.travelRequestRepository.save(travelRequest);
   }
 
@@ -99,11 +137,10 @@ export class TravelRequestService {
       // Add role-specific conditions
       if (user.role === UserRole.PRINCIPAL) {
         query = query.where(
-          '(user.role = :teacherRole AND user.school_id = :schoolId) OR user.role = :asdsRole',
+          'user.role = :teacherRole AND user.school_id = :schoolId',
           { 
             teacherRole: UserRole.TEACHER, 
-            schoolId: user.school_id,
-            asdsRole: UserRole.ASDS 
+            schoolId: user.school_id
           }
         );
       } else if (user.role === UserRole.PSDS) {
@@ -121,6 +158,13 @@ export class TravelRequestService {
             psdsRole: UserRole.PSDS 
           }
         );
+      } else if (user.role === UserRole.SDS) {
+        query = query.where(
+          'user.role = :asdsRole',
+          { 
+            asdsRole: UserRole.ASDS 
+          }
+        );
       } else {
         // For any other role, return an empty array
         return [];
@@ -135,7 +179,8 @@ export class TravelRequestService {
 
   async markAsViewed(id: number): Promise<TravelRequest> {
     const travelRequest = await this.findOne(id);
-    travelRequest.viewed = true;
+    // Use type assertion to tell TypeScript that this property exists
+    (travelRequest as any).viewed = true;
     return await this.travelRequestRepository.save(travelRequest);
   }
 
@@ -333,10 +378,10 @@ export class TravelRequestService {
     const requestsToExpire = await this.travelRequestRepository.find({
       where: [
         {
-        isCodeExpired: false,
-        securityCode: Not(''),
-        codeExpirationDate: LessThan(today)
-      },
+          isCodeExpired: false,
+          securityCode: Not(''),
+          codeExpirationDate: LessThan(today)
+        },
         // Also find codes that are marked as expired but still have a security code
         {
           isCodeExpired: true,
@@ -381,32 +426,27 @@ export class TravelRequestService {
       const originalCode = request.securityCode;
       
       if (!request.isCodeExpired && request.codeExpirationDate && request.codeExpirationDate < today) {
-        // Mark as expired and clear the security code
+        // Mark as expired
         console.log(`Marking code as expired for travel request ID: ${request.id}`);
         request.isCodeExpired = true;
         expiredCount++;
+        
+        // Send notification about expiration
+        await this.notificationService.createNotification(
+          request.user,
+          `Your travel request security code ${originalCode} has expired.`,
+          NotificationType.TRAVEL_REQUEST_EXPIRED
+        );
       }
       
-      // Clear the security code if it's expired or should be expired
-      if (request.isCodeExpired && request.securityCode) {
+      // Always clear the security code if it's marked as expired
+      if (request.isCodeExpired) {
         console.log(`Clearing security code for expired travel request ID: ${request.id}`);
         request.securityCode = '';
-        
-        // Save the updated request
-        await this.travelRequestRepository.save(request);
-        
-        // Send notification only if we haven't already counted this as expired
-        if (expiredCount > 0) {
-          await this.notificationService.createNotification(
-            request.user,
-            `Your travel request security code ${originalCode} has expired and has been cleared from the system.`,
-            NotificationType.TRAVEL_REQUEST_EXPIRED
-          );
-        }
-      } else {
-        // Save any other changes
-        await this.travelRequestRepository.save(request);
       }
+      
+      // Save the updated request
+      await this.travelRequestRepository.save(request);
     }
 
     // Handle clearing codes (after end date)
@@ -415,6 +455,7 @@ export class TravelRequestService {
       if (request.endDate < today && request.securityCode) {
         console.log(`Clearing security code for travel request ID: ${request.id}, End date: ${request.endDate.toISOString()}`);
         request.securityCode = '';
+        request.isCodeExpired = true; // Also mark as expired
         await this.travelRequestRepository.save(request);
         clearedCount++;
 
@@ -544,9 +585,8 @@ export class TravelRequestService {
 
   // Helper method to check if a user can validate a request based on roles
   private canUserValidateRequest(validator: User, requestor: User): boolean {
-    // Principal can validate Teacher and ASDS requests
-    if (validator.role === UserRole.PRINCIPAL && 
-        (requestor.role === UserRole.TEACHER || requestor.role === UserRole.ASDS)) {
+    // Principal can validate Teacher requests only (removed ASDS)
+    if (validator.role === UserRole.PRINCIPAL && requestor.role === UserRole.TEACHER) {
       return true;
     }
     
@@ -557,6 +597,11 @@ export class TravelRequestService {
     
     // ASDS can validate PSDS requests
     if (validator.role === UserRole.ASDS && requestor.role === UserRole.PSDS) {
+      return true;
+    }
+    
+    // SDS can validate ASDS requests
+    if (validator.role === UserRole.SDS && requestor.role === UserRole.ASDS) {
       return true;
     }
     

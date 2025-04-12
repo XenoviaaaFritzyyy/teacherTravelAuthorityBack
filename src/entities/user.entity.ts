@@ -7,6 +7,7 @@ export enum UserRole {
   PRINCIPAL = 'Principal',
   PSDS = 'PSDS',
   ASDS = 'ASDS',
+  SDS = 'SDS',
   AO_ADMIN_OFFICER = 'AO Admin Officer',
   AO_ADMIN = 'AO Admin',
   ADMIN = 'Admin'
