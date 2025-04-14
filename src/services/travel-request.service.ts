@@ -45,30 +45,56 @@ export class TravelRequestService {
 
     const hasCustomDepartment = travelRequest.department.some(dept => !standardDepartments.includes(dept));
 
-    // If there's a custom department, auto-approve the request and generate a security code
+    // If there's a custom department, set status to pending and wait for validation
     if (hasCustomDepartment) {
-      travelRequest.status = TravelRequestStatus.ACCEPTED;
-      travelRequest.validationStatus = ValidationStatus.VALIDATED;
-      travelRequest.securityCode = this.generateSecurityCode(
-        travelRequest.user.first_name,
-        travelRequest.user.last_name
-      );
-
-      // Save the travel request first to get the ID
-      const savedRequest = await this.travelRequestRepository.save(travelRequest);
-
-      // Then create a notification with the security code
-      await this.notificationService.createNotification(
-        user,
-        `Your travel request to ${travelRequest.department.join(', ')} has been automatically approved. Security Code: ${travelRequest.securityCode}. This code will expire after ${travelRequest.codeExpirationDate.toLocaleDateString()}.`,
-        NotificationType.TRAVEL_REQUEST_APPROVED
-      );
-
-      return savedRequest;
+      travelRequest.status = TravelRequestStatus.PENDING;
+      travelRequest.validationStatus = ValidationStatus.PENDING;
     }
 
-    // For standard departments, follow the normal approval flow
-    return await this.travelRequestRepository.save(travelRequest);
+    // Save the travel request first
+    const savedRequest = await this.travelRequestRepository.save(travelRequest);
+
+    // Find the appropriate validator based on user's role
+    let validatorRole: UserRole;
+    switch (user.role) {
+      case UserRole.TEACHER:
+        validatorRole = UserRole.PRINCIPAL;
+        break;
+      case UserRole.PRINCIPAL:
+        validatorRole = UserRole.PSDS;
+        break;
+      case UserRole.PSDS:
+        validatorRole = UserRole.ASDS;
+        break;
+      case UserRole.ASDS:
+        validatorRole = UserRole.SDS;
+        break;
+      default:
+        validatorRole = UserRole.ADMIN;
+    }
+
+    if (validatorRole) {
+      // Find all users with the validator role
+      const validators = await this.findUsersByRole(validatorRole);
+      
+      // Notify all appropriate validators
+      for (const validator of validators) {
+        await this.notificationService.createNotification(
+          validator,
+          `A new travel request requires your validation from ${user.first_name} ${user.last_name}.`,
+          NotificationType.TRAVEL_REQUEST_VALIDATED
+        );
+      }
+    }
+
+    // Notify the requester that their request is pending validation
+    await this.notificationService.createNotification(
+      user,
+      `Your travel request to ${travelRequest.department.join(', ')} has been submitted and is pending validation.`,
+      NotificationType.TRAVEL_REQUEST_VALIDATED
+    );
+
+    return savedRequest;
   }
 
   async findAll(): Promise<TravelRequest[]> {
@@ -611,5 +637,13 @@ export class TravelRequestService {
     }
     
     return false;
+  }
+
+  // Add this helper method to find users by role
+  private async findUsersByRole(role: UserRole): Promise<User[]> {
+    const entityManager = this.travelRequestRepository.manager;
+    return await entityManager.find(User, {
+      where: { role: role }
+    });
   }
 }
