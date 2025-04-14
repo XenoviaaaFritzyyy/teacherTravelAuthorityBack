@@ -20,12 +20,18 @@ export class NotificationService {
     return await this.notificationRepository.save(notification);
   }
 
-  async findUserNotifications(userId: number): Promise<Notification[]> {
-    return await this.notificationRepository.find({
+  async findUserNotifications(userId: number, page: number = 1, limit: number = 10): Promise<{ notifications: Notification[], total: number }> {
+    const skip = (page - 1) * limit;
+    
+    const [notifications, total] = await this.notificationRepository.findAndCount({
       where: { user: { id: userId } },
       relations: ['user'],
       order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
     });
+    
+    return { notifications, total };
   }
 
   async markAsRead(notificationId: number): Promise<Notification> {
