@@ -20,11 +20,36 @@ export class NotificationService {
     return await this.notificationRepository.save(notification);
   }
 
-  async findUserNotifications(userId: number, page: number = 1, limit: number = 10): Promise<{ notifications: Notification[], total: number }> {
+  async findUserNotifications(
+    userId: number, 
+    page: number = 1, 
+    limit: number = 10,
+    startDate?: string,
+    endDate?: string
+  ): Promise<{ notifications: Notification[], total: number }> {
     const skip = (page - 1) * limit;
     
+    // Build query conditions
+    const whereCondition: any = { user: { id: userId } };
+    
+    // Add date filtering if provided
+    if (startDate || endDate) {
+      whereCondition.createdAt = {};
+      
+      if (startDate) {
+        whereCondition.createdAt.gte = new Date(startDate);
+      }
+      
+      if (endDate) {
+        // Set the end date to the end of the day
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        whereCondition.createdAt.lte = endDateTime;
+      }
+    }
+    
     const [notifications, total] = await this.notificationRepository.findAndCount({
-      where: { user: { id: userId } },
+      where: whereCondition,
       relations: ['user'],
       order: { createdAt: 'DESC' },
       skip,

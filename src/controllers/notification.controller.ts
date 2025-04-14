@@ -11,9 +11,11 @@ export class NotificationController {
   findUserNotifications(
     @Request() req,
     @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10
+    @Query('limit') limit: number = 10,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string
   ) {
-    return this.notificationService.findUserNotifications(req.user.id, page, limit);
+    return this.notificationService.findUserNotifications(req.user.id, page, limit, startDate, endDate);
   }
 
   @Patch(':id/read')
