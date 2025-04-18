@@ -127,22 +127,37 @@ export class TravelRequestService {
     const travelRequest = await this.findOne(id);
     travelRequest.status = status;
     
-    if (status === TravelRequestStatus.ACCEPTED && !travelRequest.securityCode) {
-      travelRequest.securityCode = this.generateSecurityCode(
-        travelRequest.user.first_name,
-        travelRequest.user.last_name
-      );
-      
-      // Set expiration to end of the travel start date
-      const expirationDate = new Date(travelRequest.startDate);
-      expirationDate.setHours(23, 59, 59, 999);
-      travelRequest.codeExpirationDate = expirationDate;
-      
-      await this.notificationService.createNotification(
-        travelRequest.user,
-        `Your travel request has been approved. Security Code: ${travelRequest.securityCode}. This code will expire at the end of ${expirationDate.toLocaleDateString()}.`,
-        NotificationType.TRAVEL_REQUEST_APPROVED
-      );
+    if (status === TravelRequestStatus.ACCEPTED) {
+      // Generate security code if it doesn't exist
+      if (!travelRequest.securityCode) {
+        travelRequest.securityCode = this.generateSecurityCode(
+          travelRequest.user.first_name,
+          travelRequest.user.last_name
+        );
+        
+        // Set expiration to 2 working days after the start date
+        const startDate = new Date(travelRequest.startDate);
+        travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(startDate, 2);
+        
+        // Send notification about the approval and security code
+        await this.notificationService.createNotification(
+          travelRequest.user,
+          `Your travel request has been approved. Security Code: ${travelRequest.securityCode}. This code will expire after ${travelRequest.codeExpirationDate.toLocaleDateString()}.`,
+          NotificationType.TRAVEL_REQUEST_APPROVED
+        );
+
+        // If the request has departments, notify AO_ADMIN users
+        if (travelRequest.department && travelRequest.department.length > 0) {
+          const aoAdmins = await this.findAOAdminUsers();
+          for (const admin of aoAdmins) {
+            await this.notificationService.createNotification(
+              admin,
+              `A travel request from ${travelRequest.user.first_name} ${travelRequest.user.last_name} has been approved and requires your attention.`,
+              NotificationType.TRAVEL_REQUEST_VALIDATED
+            );
+          }
+        }
+      }
     }
     
     return await this.travelRequestRepository.save(travelRequest);
@@ -631,8 +646,10 @@ export class TravelRequestService {
       return true;
     }
     
-    // Admin can validate any request
-    if (validator.role === UserRole.ADMIN || validator.role === UserRole.AO_ADMIN) {
+    // Admin, AO_ADMIN, and AO_ADMIN_OFFICER can validate any request
+    if (validator.role === UserRole.ADMIN || 
+        validator.role === UserRole.AO_ADMIN || 
+        validator.role === UserRole.AO_ADMIN_OFFICER) {
       return true;
     }
     
