@@ -57,15 +57,6 @@ export class TravelRequestService {
     // Find the appropriate validator based on user's role
     let validatorRole: UserRole;
     switch (user.role) {
-      case UserRole.TEACHER:
-        validatorRole = UserRole.PRINCIPAL;
-        break;
-      case UserRole.PRINCIPAL:
-        validatorRole = UserRole.PSDS;
-        break;
-      case UserRole.PSDS:
-        validatorRole = UserRole.ASDS;
-        break;
       case UserRole.ASDS:
         validatorRole = UserRole.SDS;
         break;
