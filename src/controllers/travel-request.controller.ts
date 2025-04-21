@@ -164,4 +164,22 @@ export class TravelRequestController {
       throw new InternalServerErrorException(`Failed to check expired codes: ${error.message}`);
     }
   }
+
+  @Patch(':id/complete')
+  async completeRequest(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req
+  ) {
+    try {
+      return await this.travelRequestService.completeRequest(id, req.user);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(error.message);
+    }
+  }
 }

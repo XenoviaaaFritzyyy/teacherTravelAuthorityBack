@@ -654,4 +654,34 @@ export class TravelRequestService {
       where: { role: role }
     });
   }
+
+  async completeRequest(id: number, user: User): Promise<TravelRequest> {
+    const travelRequest = await this.travelRequestRepository.findOne({
+      where: { id },
+      relations: ['user']
+    });
+
+    if (!travelRequest) {
+      throw new NotFoundException(`Travel request with ID ${id} not found`);
+    }
+
+    // Check if the request is validated
+    if (travelRequest.validationStatus !== ValidationStatus.VALIDATED) {
+      throw new ForbiddenException('Only validated requests can be completed');
+    }
+
+    // Check if the user is authorized to complete the request (AO Admin Officer)
+    if (user.role !== UserRole.AO_ADMIN_OFFICER) {
+      throw new ForbiddenException('Only AO Admin Officers can complete travel requests');
+    }
+
+    // Send completion notification with Certificate of Appearance availability
+    await this.notificationService.createNotification(
+      travelRequest.user,
+      `Your travel request has been completed. You can now download your Certificate of Appearance. Security Code: ${travelRequest.securityCode}`,
+      NotificationType.TRAVEL_REQUEST_COMPLETED
+    );
+
+    return travelRequest;
+  }
 }
