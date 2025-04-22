@@ -297,27 +297,26 @@ export class TravelRequestService {
         travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(startDate, 2);
       }
       
-      // Notify the user that their request has been approved
-      await this.notificationService.createNotification(
-        travelRequest.user,
-        `Your travel request has been approved. Security Code: ${travelRequest.securityCode}. This code will expire after ${travelRequest.codeExpirationDate.toLocaleDateString()}.`,
-        NotificationType.TRAVEL_REQUEST_APPROVED
+      // Check user position to determine notification type
+      // Only send TRAVEL_REQUEST_VALIDATED notification if not approved by Admin Officer
+      const isAdminOfficer = user.position && (
+        user.position.toLowerCase().includes('administrative officer') || 
+        user.position.toLowerCase().includes('admin officer') ||
+        user.role === UserRole.ADMIN
       );
-      
-      // If the validator is a Principal, PSDS, or ASDS, also notify the AO_ADMIN
-      if (user.role === UserRole.PRINCIPAL || user.role === UserRole.PSDS || user.role === UserRole.ASDS) {
-        // Find all AO_ADMIN users
-        const aoAdmins = await this.findAOAdminUsers();
-        
-        // Notify each AO_ADMIN about the validated request
-        for (const admin of aoAdmins) {
-          await this.notificationService.createNotification(
-            admin,
-            `A travel request from ${travelRequest.user.first_name} ${travelRequest.user.last_name} has been validated by ${user.first_name} ${user.last_name} (${user.role}).`,
-            NotificationType.TRAVEL_REQUEST_VALIDATED
-          );
-        }
+
+      // Only send validation notification if not from Admin Officer
+      if (!isAdminOfficer) {
+        // Send notification to the user about the validation
+        await this.notificationService.createNotification(
+          travelRequest.user,
+          `Your travel request has been validated by ${user.first_name} ${user.last_name}.`,
+          NotificationType.TRAVEL_REQUEST_VALIDATED
+        );
       }
+      
+      // For Admin Officer validation, the notification will be sent via receipt notification
+      // to avoid duplication
     } else if (validationStatus === ValidationStatus.REJECTED) {
       // If rejected, update the status to rejected
       travelRequest.status = TravelRequestStatus.REJECTED;
@@ -557,36 +556,36 @@ export class TravelRequestService {
     return await this.travelRequestRepository.save(travelRequest);
   }
 
-  async sendReceiptNotification(id: number, message: string, adminUser: User): Promise<TravelRequest> {
-    // Check if the user is an AO Admin Officer
-    if (adminUser.role !== UserRole.AO_ADMIN_OFFICER) {
-      throw new ForbiddenException('Only AO Admin Officers can send receipt notifications');
-    }
-
-    // Find the travel request
-    const travelRequest = await this.travelRequestRepository.findOne({
-      where: { id },
-      relations: ['user'],
-    });
-
+  async sendReceiptNotification(
+    id: number, 
+    message: string, 
+    adminUser: User
+  ): Promise<TravelRequest> {
+    const travelRequest = await this.findOne(id);
+    
     if (!travelRequest) {
       throw new NotFoundException(`Travel request with ID ${id} not found`);
     }
-
-    // Check if the travel request is validated
-    if (travelRequest.validationStatus !== ValidationStatus.VALIDATED) {
-      throw new ForbiddenException('Only validated travel requests can receive receipt notifications');
-    }
-
-    // Create a notification for the user
-    const notificationMessage = message || `Your travel request receipt is ready. Security Code: ${travelRequest.securityCode}`;
     
+    // Determine if this is from an Admin Officer
+    const isAdminOfficer = adminUser.position && (
+      adminUser.position.toLowerCase().includes('administrative officer') || 
+      adminUser.position.toLowerCase().includes('admin officer') ||
+      adminUser.role === UserRole.ADMIN
+    );
+    
+    // Choose notification type based on who is sending it
+    const notificationType = isAdminOfficer 
+      ? NotificationType.CERTIFICATE_OF_APPEARANCE_APPROVED 
+      : NotificationType.TRAVEL_REQUEST_APPROVED;
+    
+    // Create the notification with the appropriate type
     await this.notificationService.createNotification(
       travelRequest.user,
-      notificationMessage,
-      NotificationType.TRAVEL_REQUEST_RECEIPT
+      message,
+      notificationType
     );
-
+    
     return travelRequest;
   }
 
