@@ -32,7 +32,7 @@ export class TravelRequestService {
 
     // Check if the department array contains "Others" or a custom department that's not in the standard list
     const standardDepartments = [
-      "Accounting", "Administrative", "Administrator", "Assessment and Evaluation",
+      "Accounting", "Administrative Office", "Assessment and Evaluation",
       "Assistant Schools Division Superintendent (Cluster A)", "Assistant Schools Division Superintendent (Cluster B)",
       "Assistant Schools Division Superintendent (Cluster C)", "Authorized Center", "Authorized Officer",
       "Authorized Official", "Budget", "Cashier", "CID", "Client", "Curriculum Management",
