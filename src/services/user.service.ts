@@ -101,7 +101,7 @@ export class UserService {
     }
 
     // Hash the default password
-    const hashedPassword = await bcrypt.hash('password123', 10);
+    const hashedPassword = await bcrypt.hash('@Password123', 10);
     
     // Update user with new password and require change on next login
     user.password = hashedPassword;
