@@ -2,9 +2,10 @@ import { IsNotEmpty, IsString, IsEmail, IsEnum, IsOptional } from 'class-validat
 import { UserRole } from '../../entities/user.entity';
 
 export class CreateUserDto {
-  @IsString()
-  @IsNotEmpty()
-  username: string;
+  // Remove username
+  // @IsString()
+  // @IsNotEmpty()
+  // username: string;
 
   @IsString()
   @IsNotEmpty()

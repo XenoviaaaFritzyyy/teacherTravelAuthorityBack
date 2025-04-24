@@ -58,16 +58,6 @@ export class UserService {
         return null;
       }
 
-      // If username is being updated, check if it's already taken
-      if (user.username) {
-        const userWithUsername = await this.userRepository.findOne({
-          where: { username: user.username, id: Not(id) }
-        });
-        if (userWithUsername) {
-          throw new Error(`Username '${user.username}' is already taken`);
-        }
-      }
-
       // Remove the id from the update object to prevent primary key conflicts
       const { id: _, ...updateData } = user;
 
@@ -157,7 +147,7 @@ export class UserService {
       totalAOAdmins: aoAdmins,
       totalAdmins: admins,
       users: await this.userRepository.find({
-        select: ['id', 'username', 'first_name', 'last_name', 'role', 'school_name']
+        select: ['id', 'first_name', 'last_name', 'role', 'school_name']
       })
     };
   }
@@ -165,7 +155,7 @@ export class UserService {
   async getAOAdminDashboardStats(): Promise<any> {
     const teachers = await this.userRepository.find({
       where: { role: UserRole.TEACHER },
-      select: ['id', 'username', 'first_name', 'last_name', 'school_name', 'employee_number']
+      select: ['id', 'first_name', 'last_name', 'school_name', 'employee_number']
     });
 
     return {

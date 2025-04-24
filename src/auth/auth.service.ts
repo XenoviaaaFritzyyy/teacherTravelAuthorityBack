@@ -32,7 +32,7 @@ export class AuthService {
       const savedUser = await this.userRepository.save(user);
       
       // Generate JWT token
-      const payload = { username: savedUser.username, sub: savedUser.id };
+      const payload = { email: savedUser.email, sub: savedUser.id };
       const accessToken = this.jwtService.sign(payload);
       
       return { accessToken };
@@ -40,7 +40,7 @@ export class AuthService {
       console.error('Signup error:', error); // Add detailed error logging
       
       if (error.code === 'ER_DUP_ENTRY') {
-        throw new ConflictException('Username already exists');
+        throw new ConflictException('Email already exists');
       }
       
       // Add more specific error handling

@@ -28,7 +28,6 @@ export class SeedService implements OnModuleInit {
 
       // Create admin user
       const adminUser = this.userRepository.create({
-        username: 'admin',
         email: 'admin@gmail.com',
         password: hashedPassword,
         role: UserRole.ADMIN,
