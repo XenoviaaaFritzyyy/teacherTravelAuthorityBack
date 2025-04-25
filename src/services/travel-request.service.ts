@@ -64,26 +64,42 @@ export class TravelRequestService {
         validatorRole = UserRole.ADMIN;
     }
 
+    // Create a single notification for the requester
+    const notificationKeyForRequester = `travel-request-user-${user.id}-${savedRequest.id}`;
+    console.log(`Creating notification for requester with key: ${notificationKeyForRequester}`);
+    
+    await this.notificationService.createNotification(
+      user,
+      `Your travel request to ${travelRequest.department.join(', ')} has been submitted and is pending validation.`,
+      NotificationType.TRAVEL_REQUEST_VALIDATED,
+      { 
+        travelRequestId: savedRequest.id, 
+        notificationKey: notificationKeyForRequester,
+        userRole: 'requester'
+      }
+    );
+    
     if (validatorRole) {
       // Find all users with the validator role
       const validators = await this.findUsersByRole(validatorRole);
       
-      // Notify all appropriate validators
+      // Create separate notifications for validators with user-specific notification keys
       for (const validator of validators) {
+        const notificationKeyForValidator = `travel-request-user-${validator.id}-${savedRequest.id}`;
+        console.log(`Creating notification for validator ${validator.id} with key: ${notificationKeyForValidator}`);
+        
         await this.notificationService.createNotification(
           validator,
           `A new travel request requires your validation from ${user.first_name} ${user.last_name}.`,
-          NotificationType.TRAVEL_REQUEST_VALIDATED
+          NotificationType.TRAVEL_REQUEST_VALIDATED,
+          { 
+            travelRequestId: savedRequest.id, 
+            notificationKey: notificationKeyForValidator,
+            userRole: 'validator'
+          }
         );
       }
     }
-
-    // Notify the requester that their request is pending validation
-    await this.notificationService.createNotification(
-      user,
-      `Your travel request to ${travelRequest.department.join(', ')} has been submitted and is pending validation.`,
-      NotificationType.TRAVEL_REQUEST_VALIDATED
-    );
 
     return savedRequest;
   }
@@ -131,20 +147,38 @@ export class TravelRequestService {
         travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(startDate, 2);
         
         // Send notification about the approval and security code
+        const notificationKeyForRequester = `travel-request-user-${travelRequest.user.id}-${travelRequest.id}`;
+        console.log(`Updating notification for requester with key: ${notificationKeyForRequester}`);
+        
         await this.notificationService.createNotification(
           travelRequest.user,
           `Your travel request has been approved. Security Code: ${travelRequest.securityCode}. This code will expire after ${travelRequest.codeExpirationDate.toLocaleDateString()}.`,
-          NotificationType.TRAVEL_REQUEST_APPROVED
+          NotificationType.TRAVEL_REQUEST_APPROVED,
+          { 
+            travelRequestId: travelRequest.id, 
+            notificationKey: notificationKeyForRequester,
+            userRole: 'requester',
+            status: 'approved'
+          }
         );
 
         // If the request has departments, notify AO_ADMIN users
         if (travelRequest.department && travelRequest.department.length > 0) {
           const aoAdmins = await this.findAOAdminUsers();
           for (const admin of aoAdmins) {
+            const notificationKeyForAdmin = `travel-request-user-${admin.id}-${travelRequest.id}`;
+            console.log(`Creating/updating notification for admin ${admin.id} with key: ${notificationKeyForAdmin}`);
+            
             await this.notificationService.createNotification(
               admin,
               `A travel request from ${travelRequest.user.first_name} ${travelRequest.user.last_name} has been approved and requires your attention.`,
-              NotificationType.TRAVEL_REQUEST_VALIDATED
+              NotificationType.TRAVEL_REQUEST_VALIDATED,
+              { 
+                travelRequestId: travelRequest.id, 
+                notificationKey: notificationKeyForAdmin,
+                userRole: 'admin',
+                status: 'approved'
+              }
             );
           }
         }
@@ -308,10 +342,21 @@ export class TravelRequestService {
       // Only send validation notification if not from Admin Officer
       if (!isAdminOfficer) {
         // Send notification to the user about the validation
+        const notificationKeyForRequester = `travel-request-user-${travelRequest.user.id}-${travelRequest.id}`;
+        console.log(`Updating notification for requester with key: ${notificationKeyForRequester}`);
+        
         await this.notificationService.createNotification(
           travelRequest.user,
           `Your travel request has been validated by ${user.first_name} ${user.last_name}.`,
-          NotificationType.TRAVEL_REQUEST_VALIDATED
+          NotificationType.TRAVEL_REQUEST_VALIDATED,
+          { 
+            travelRequestId: travelRequest.id, 
+            notificationKey: notificationKeyForRequester,
+            userRole: 'requester',
+            validatorName: `${user.first_name} ${user.last_name}`, 
+            validationDate: new Date().toISOString(),
+            status: 'validated'
+          }
         );
       }
       
@@ -372,19 +417,36 @@ export class TravelRequestService {
     
     const updatedRequest = await this.travelRequestRepository.save(travelRequest);
 
+    const notificationKeyForRequester = `travel-request-user-${travelRequest.user.id}-${travelRequest.id}`;
+    console.log(`Updating notification for requester with key: ${notificationKeyForRequester}`);
+    
     if (status === TravelRequestStatus.ACCEPTED) {
       await this.notificationService.createNotification(
         travelRequest.user,
         `Your travel request has been approved. Security Code: ${travelRequest.securityCode}. 
         This code will be marked as expired after ${travelRequest.codeExpirationDate.toLocaleDateString()} 
         but will remain available for emergency purposes until your travel end date.`,
-        NotificationType.TRAVEL_REQUEST_APPROVED
+        NotificationType.TRAVEL_REQUEST_APPROVED,
+        { 
+          travelRequestId: travelRequest.id, 
+          notificationKey: notificationKeyForRequester, 
+          userRole: 'requester',
+          adminId: admin.id,
+          status: 'approved'
+        }
       );
     } else {
       await this.notificationService.createNotification(
         travelRequest.user,
         `Your travel request has been rejected.`,
-        NotificationType.TRAVEL_REQUEST_REJECTED
+        NotificationType.TRAVEL_REQUEST_REJECTED,
+        { 
+          travelRequestId: travelRequest.id, 
+          notificationKey: notificationKeyForRequester, 
+          userRole: 'requester',
+          adminId: admin.id,
+          status: 'rejected'
+        }
       );
     }
 
@@ -424,17 +486,18 @@ export class TravelRequestService {
 
     console.log(`Found ${requestsToExpire.length} travel requests with expired codes or codes that need to be cleared`);
     
-    // Debug information
+    // Group requests by user to avoid sending multiple notifications to the same user
+    const userRequestMap = new Map<number, TravelRequest[]>();
+    
     for (const request of requestsToExpire) {
-      console.log(`Travel request ID: ${request.id}`);
-      console.log(`Security Code: ${request.securityCode}`);
-      console.log(`Code Expiration Date: ${request.codeExpirationDate?.toISOString() || 'No expiration date'}`);
-      console.log(`Current isCodeExpired value: ${request.isCodeExpired}`);
-      console.log(`Today's date for comparison: ${today.toISOString()}`);
-      
-      // Check if the code should be expired
-      const shouldExpire = request.codeExpirationDate && request.codeExpirationDate < today;
-      console.log(`Should expire based on date comparison: ${shouldExpire}`);
+      const userId = request.user.id;
+      if (!userRequestMap.has(userId)) {
+        userRequestMap.set(userId, []);
+      }
+      const userRequests = userRequestMap.get(userId);
+      if (userRequests) {
+        userRequests.push(request);
+      }
     }
     
     // Find requests where end date has passed (to clear security code)
@@ -449,54 +512,127 @@ export class TravelRequestService {
     let expiredCount = 0;
     let clearedCount = 0;
 
-    // Handle code expiration
-    for (const request of requestsToExpire) {
-      console.log(`Processing travel request ID: ${request.id}`);
+    // Process requests by user to avoid notification spam
+    for (const [userId, userRequests] of userRequestMap.entries()) {
+      const user = userRequests[0].user; // All requests in this group have the same user
+      const expiredRequests = userRequests.filter(req => 
+        !req.isCodeExpired && req.codeExpirationDate && req.codeExpirationDate < today
+      );
       
-      // Store the original security code for reference in the notification
-      const originalCode = request.securityCode;
-      
-      if (!request.isCodeExpired && request.codeExpirationDate && request.codeExpirationDate < today) {
-        // Mark as expired
-        console.log(`Marking code as expired for travel request ID: ${request.id}`);
-        request.isCodeExpired = true;
-        expiredCount++;
+      // Only send one notification per user for all expired requests
+      if (expiredRequests.length > 0) {
+        // Mark all as expired
+        for (const request of expiredRequests) {
+          console.log(`Marking code as expired for travel request ID: ${request.id}`);
+          request.isCodeExpired = true;
+          expiredCount++;
+        }
         
-        // Send notification about expiration
+        // Get request IDs for the notification message
+        const requestIds = expiredRequests.map(req => req.id).join(', ');
+        
+        // Find the original notification for the first expired request to update it
+        // This ensures we update the existing notification instead of creating a new one
+        const firstRequest = expiredRequests[0];
+        const notificationKeyForRequester = `travel-request-user-${userId}-${firstRequest.id}`;
+        console.log(`Updating existing notification for user ${userId} with key: ${notificationKeyForRequester}`);
+        
+        // Store the security code in the notification metadata before clearing it
         await this.notificationService.createNotification(
-          request.user,
-          `Your travel request security code ${originalCode} has expired.`,
-          NotificationType.TRAVEL_REQUEST_EXPIRED
+          user,
+          `Your travel request security code has expired.`,
+          NotificationType.TRAVEL_REQUEST_EXPIRED,
+          { 
+            notificationKey: notificationKeyForRequester, 
+            travelRequestId: firstRequest.id,
+            userRole: 'requester',
+            expirationDate: today.toISOString(),
+            status: 'expired',
+            originalSecurityCode: firstRequest.securityCode // Store the original security code
+          }
         );
       }
       
-      // Always clear the security code if it's marked as expired
-      if (request.isCodeExpired) {
-        console.log(`Clearing security code for expired travel request ID: ${request.id}`);
-        request.securityCode = '';
+      // Clear security codes for expired requests but we've stored them in notification metadata
+      for (const request of userRequests) {
+        if (request.isCodeExpired) {
+          console.log(`Clearing security code for expired travel request ID: ${request.id} (code stored in notification metadata)`);
+          request.securityCode = ''; // Clear the security code to free up the pattern
+          // Save the updated request
+          await this.travelRequestRepository.save(request);
+        }
       }
-      
-      // Save the updated request
-      await this.travelRequestRepository.save(request);
     }
 
-    // Handle clearing codes (after end date)
+    // Group requestsToClear by user to avoid sending multiple notifications to the same user
+    const userClearMap = new Map<number, TravelRequest[]>();
+    
     for (const request of requestsToClear) {
-      // Only clear the code if the end date has truly passed
+      // Only include requests where the end date has truly passed
       if (request.endDate < today && request.securityCode) {
-        console.log(`Clearing security code for travel request ID: ${request.id}, End date: ${request.endDate.toISOString()}`);
-        request.securityCode = '';
-        request.isCodeExpired = true; // Also mark as expired
-        await this.travelRequestRepository.save(request);
-        clearedCount++;
-
-        await this.notificationService.createNotification(
-          request.user,
-          `Your travel period has ended and your security code has been cleared.`,
-          NotificationType.TRAVEL_REQUEST_COMPLETED
-        );
+        const userId = request.user.id;
+        if (!userClearMap.has(userId)) {
+          userClearMap.set(userId, []);
+        }
+        const userRequests = userClearMap.get(userId);
+        if (userRequests) {
+          userRequests.push(request);
+        }
       } else {
         console.log(`Skipping clearing security code for travel request ID: ${request.id} as its end date has not passed yet`);
+      }
+    }
+    
+    // Process requests by user to avoid notification spam
+    for (const [userId, userRequests] of userClearMap.entries()) {
+      if (userRequests.length > 0) {
+        const user = userRequests[0].user; // All requests in this group have the same user
+        
+        // Process all requests for this user
+        for (const request of userRequests) {
+          // Store the security code in notification metadata before clearing it
+          const notificationKeyForRequest = `travel-request-user-${userId}-${request.id}`;
+          await this.notificationService.createNotification(
+            user,
+            `Your travel period has ended and your security code has been cleared.`,
+            NotificationType.TRAVEL_REQUEST_COMPLETED,
+            { 
+              notificationKey: notificationKeyForRequest,
+              travelRequestId: request.id,
+              userRole: 'requester',
+              originalSecurityCode: request.securityCode // Store the original security code
+            }
+          );
+          
+          console.log(`Clearing security code for travel request ID: ${request.id}, End date: ${request.endDate.toISOString()} (code stored in notification metadata)`);
+          request.securityCode = ''; // Clear the security code to free up the pattern
+          request.isCodeExpired = true;
+          await this.travelRequestRepository.save(request);
+          clearedCount++;
+        }
+        
+        // Get request IDs for the notification message
+        const requestIds = userRequests.map(req => req.id).join(', ');
+        
+        // Send a single notification for all completed requests for this user
+        const notificationKeyForRequester = `travel-request-user-${userId}-completed-${today.toDateString()}`;
+        console.log(`Creating/updating completion notification for user ${userId} with key: ${notificationKeyForRequester}`);
+        
+        await this.notificationService.createNotification(
+          user,
+          userRequests.length === 1
+            ? `Your travel period has ended and your security code has been cleared.`
+            : `${userRequests.length} of your travel periods have ended and your security codes have been cleared.`,
+          NotificationType.TRAVEL_REQUEST_COMPLETED,
+          { 
+            notificationKey: notificationKeyForRequester, 
+            userRole: 'requester',
+            completionDate: today.toISOString(),
+            status: 'completed',
+            batchProcessed: true,
+            affectedRequests: requestIds
+          }
+        );
       }
     }
 
@@ -546,10 +682,20 @@ export class TravelRequestService {
       travelRequest.codeExpirationDate = this.dateUtilService.addWorkingDays(new Date(), 7);
       
       // Create notification for the teacher with security code
+      const notificationKeyForRequester = `travel-request-user-${travelRequest.user.id}-${travelRequest.id}`;
+      console.log(`Updating notification for requester with key: ${notificationKeyForRequester}`);
+      
       await this.notificationService.createNotification(
         travelRequest.user,
         `Your travel request has been approved. Security Code: ${travelRequest.securityCode}`,
-        NotificationType.TRAVEL_REQUEST_APPROVED
+        NotificationType.TRAVEL_REQUEST_APPROVED,
+        { 
+          travelRequestId: travelRequest.id, 
+          notificationKey: notificationKeyForRequester, 
+          userRole: 'requester',
+          generatedAt: new Date().toISOString(),
+          status: 'approved'
+        }
       );
     }
 
@@ -580,10 +726,20 @@ export class TravelRequestService {
       : NotificationType.TRAVEL_REQUEST_APPROVED;
     
     // Create the notification with the appropriate type
+    const notificationKeyForRequester = `travel-request-user-${travelRequest.user.id}-${travelRequest.id}`;
+    console.log(`Updating notification for requester with key: ${notificationKeyForRequester}`);
+    
     await this.notificationService.createNotification(
       travelRequest.user,
       message,
-      notificationType
+      notificationType,
+      { 
+        travelRequestId: travelRequest.id, 
+        notificationKey: notificationKeyForRequester, 
+        userRole: 'requester',
+        adminId: adminUser.id,
+        status: 'receipt'
+      }
     );
     
     return travelRequest;
@@ -609,6 +765,56 @@ export class TravelRequestService {
       user.role !== UserRole.AO_ADMIN_OFFICER
     ) {
       throw new ForbiddenException('You are not authorized to view this travel request');
+    }
+
+    return travelRequest;
+  }
+
+  async findExpiredById(id: number, user: User): Promise<TravelRequest> {
+    // Find the travel request by ID
+    const travelRequest = await this.travelRequestRepository.findOne({
+      where: { id },
+      relations: ['user'],
+    });
+
+    if (!travelRequest) {
+      throw new NotFoundException(`Travel request with ID ${id} not found`);
+    }
+
+    // Check if the user is authorized to view this travel request
+    // Users can view their own requests or if they have appropriate roles
+    if (
+      travelRequest.user.id !== user.id && 
+      user.role !== UserRole.ADMIN && 
+      user.role !== UserRole.AO_ADMIN && 
+      user.role !== UserRole.AO_ADMIN_OFFICER
+    ) {
+      throw new ForbiddenException('You are not authorized to view this travel request');
+    }
+    
+    // Check if this is an expired request
+    if (!travelRequest.isCodeExpired) {
+      throw new ForbiddenException('This endpoint is only for expired travel requests');
+    }
+
+    // Find the notification that contains the original security code
+    const notification = await this.notificationService.findNotificationByTravelRequestId(travelRequest.user.id, id);
+    
+    if (notification) {
+      // Check if this is an expired notification with the original security code
+      if ((notification.type === NotificationType.TRAVEL_REQUEST_EXPIRED || 
+           notification.type === NotificationType.TRAVEL_REQUEST_COMPLETED) && 
+          notification.metadata) {
+        try {
+          const metadata = JSON.parse(notification.metadata);
+          if (metadata.originalSecurityCode) {
+            // Temporarily restore the security code for PDF generation
+            travelRequest.securityCode = metadata.originalSecurityCode;
+          }
+        } catch (error) {
+          console.error('Error parsing notification metadata:', error);
+        }
+      }
     }
 
     return travelRequest;
@@ -675,10 +881,20 @@ export class TravelRequestService {
     }
 
     // Send completion notification with Certificate of Appearance availability
+    const notificationKeyForRequester = `travel-request-user-${travelRequest.user.id}-${travelRequest.id}`;
+    console.log(`Updating notification for requester with key: ${notificationKeyForRequester}`);
+    
     await this.notificationService.createNotification(
       travelRequest.user,
       `Your travel request has been completed. You can now download your Certificate of Appearance. Security Code: ${travelRequest.securityCode}`,
-      NotificationType.TRAVEL_REQUEST_COMPLETED
+      NotificationType.TRAVEL_REQUEST_COMPLETED,
+      { 
+        travelRequestId: travelRequest.id, 
+        notificationKey: notificationKeyForRequester, 
+        userRole: 'requester',
+        completedBy: user.id,
+        status: 'completed'
+      }
     );
 
     return travelRequest;

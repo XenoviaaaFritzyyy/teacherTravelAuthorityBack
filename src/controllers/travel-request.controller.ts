@@ -50,6 +50,21 @@ export class TravelRequestController {
     }
   }
 
+  @Get('expired/:id')
+  async findExpiredById(
+    @Param('id') id: string,
+    @Request() req
+  ) {
+    try {
+      return await this.travelRequestService.findExpiredById(+id, req.user);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(`Failed to fetch expired travel request: ${error.message}`);
+    }
+  }
+
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateTravelRequestDto: UpdateTravelRequestDto) {
     return this.travelRequestService.update(+id, updateTravelRequestDto);

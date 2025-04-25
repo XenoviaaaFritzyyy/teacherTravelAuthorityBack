@@ -28,6 +28,9 @@ export class Notification {
   @Column({ default: false })
   isRead: boolean;
 
+  @Column({ type: 'text', nullable: true })
+  metadata: string; // Stores JSON string with travelRequestId and other related data
+
   @ManyToOne(() => User, user => user.notifications)
   user: User;
 
