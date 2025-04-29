@@ -61,7 +61,7 @@ export class TravelRequest {
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ default: '' })
+  @Column({ type: 'text', nullable: true })
   remarks: string;
 
   @Column({ default: '' })

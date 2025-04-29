@@ -10,18 +10,23 @@ import { DateUtilModule } from './modules/date-util.module';
 import { NotificationModule } from './modules/notification.module';
 import { TravelRequestModule } from './modules/travel-request.module';
 import { UserService } from './services/user.service';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
+    }),
     TypeOrmModule.forRoot({
-      type: 'mysql',
-      host: 'localhost',
-      port: 3306,
-      username: 'root',
-      password: '20031975',
-      database: 'travelauthority',
+      type: process.env.DATABASE_TYPE as any || 'mysql',
+      host: process.env.DATABASE_HOST || 'localhost',
+      port: parseInt(process.env.DATABASE_PORT || '3306', 10),
+      username: process.env.DATABASE_USERNAME || 'root',
+      password: process.env.DATABASE_PASSWORD || '!Babyseeker123',
+      database: process.env.DATABASE_NAME || 'travelauthority',
       entities: [User, TravelRequest, Notification],
-      synchronize: true,
+      synchronize: process.env.NODE_ENV !== 'production',
     }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([User]),
