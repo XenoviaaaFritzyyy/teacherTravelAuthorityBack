@@ -76,4 +76,14 @@ export class AuthService {
       accessToken: this.jwtService.sign(payload),
     };
   }
+
+  async checkEmailExists(email: string): Promise<{ exists: boolean }> {
+    try {
+      const user = await this.userRepository.findOne({ where: { email } });
+      return { exists: !!user };
+    } catch (error) {
+      console.error('Error checking email existence:', error);
+      return { exists: false }; // Default to false on error
+    }
+  }
 }

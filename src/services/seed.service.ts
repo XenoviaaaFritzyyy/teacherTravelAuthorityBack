@@ -18,25 +18,25 @@ export class SeedService implements OnModuleInit {
   private async seedAdminUser() {
     // Check if admin already exists
     const adminExists = await this.userRepository.findOne({
-      where: { email: 'admin@gmail.com' }
+      where: { email: 'emmanuel.mendoza002@deped.gov.ph' }
     });
 
     if (!adminExists) {
       // Hash the default password
       const salt = await bcrypt.genSalt();
-      const hashedPassword = await bcrypt.hash('admin123', salt);
+      const hashedPassword = await bcrypt.hash('@Password123', salt);
 
       // Create admin user
       const adminUser = this.userRepository.create({
-        email: 'admin@gmail.com',
+        email: 'emmanuel.mendoza002@deped.gov.ph',
         password: hashedPassword,
         role: UserRole.ADMIN,
-        first_name: 'System',
-        last_name: 'Admin',
+        first_name: 'Emmanuel',
+        last_name: 'Mendoza',
         school_id: 'ADMIN',
         school_name: 'System',
         district: 'System',
-        position: 'System Administrator',
+        position: 'Information Technology Officer',
         contact_no: 'N/A',
         employee_number: 'ADMIN',
         requirePasswordChange: false
