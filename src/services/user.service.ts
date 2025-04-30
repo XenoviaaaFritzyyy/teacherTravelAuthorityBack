@@ -61,6 +61,11 @@ export class UserService {
       // Remove the id from the update object to prevent primary key conflicts
       const { id: _, ...updateData } = user;
 
+      // If changing role to AO Admin and original_position is not set, store the current position
+      if (updateData.role === UserRole.AO_ADMIN && !existingUser.original_position) {
+        updateData.original_position = existingUser.position;
+      }
+
       // Update the user using the existing entity
       await this.userRepository.update(id, updateData);
       
@@ -85,6 +90,12 @@ export class UserService {
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
+
+    // If changing to AO Admin, store the original position
+    if (role === UserRole.AO_ADMIN && !user.original_position) {
+      user.original_position = user.position;
+    }
+    
     user.role = role;
     return this.userRepository.save(user);
   }

@@ -42,6 +42,9 @@ export class User {
   @Column()
   position: string;
 
+  @Column({ default: '' })
+  original_position: string;
+
   @Column()
   contact_no: string;
 
